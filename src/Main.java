@@ -37,9 +37,18 @@ class Graph {
         }
     }
 
+    private void resetNodes(){
+        for (Node node : this.nodes.values()) {
+            node.visited = false;
+        }
+    }
+
     public List<String> parallelAStarSearch(String start, String goal) throws InterruptedException {
+
+        this.resetNodes(); //All "visited" flags in each node must be reset before each search
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         PriorityQueue<NodeEntry> openSet = new PriorityQueue<>(Comparator.comparingInt(ne -> ne.fScore));
+
         Map<Node, Node> cameFrom = new ConcurrentHashMap<>();
         Map<Node, Integer> gScore = new ConcurrentHashMap<>();
         Map<Node, Integer> fScore = new ConcurrentHashMap<>();
@@ -75,16 +84,32 @@ class Graph {
                 tasks.add(() -> {
                     int tentativeGScore = gScore.getOrDefault(current, Integer.MAX_VALUE) + edge.cost;
                     if (tentativeGScore < gScore.getOrDefault(neighbor, Integer.MAX_VALUE)) {
-                        cameFrom.put(neighbor, current);
+                        synchronized (cameFrom) {
+                            cameFrom.put(neighbor, current);
+                        }
                         gScore.put(neighbor, tentativeGScore);
                         fScore.put(neighbor, tentativeGScore + heuristic(neighbor, goal));
                         hopCount.put(neighbor, hopCount.getOrDefault(current, 0) + 1);
-                        openSet.add(new NodeEntry(neighbor, tentativeGScore, fScore.get(neighbor)));
+                        synchronized (openSet) {
+                            openSet.add(new NodeEntry(neighbor, tentativeGScore, fScore.get(neighbor)));
+                        }
                     }
                 });
             }
 
             tasks.forEach(executor::submit);
+            List<Future<?>> futures = new ArrayList<>();
+            for (Runnable task : tasks) {
+                futures.add(executor.submit(task));
+            }
+            for (Future<?> future : futures) {
+                try {
+                    future.get(); // Wait for all neighbor updates to finish
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
         }
         executor.shutdown();
         return new ArrayList<>();
