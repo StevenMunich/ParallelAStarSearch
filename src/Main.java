@@ -1,7 +1,6 @@
 import java.util.*;
 import java.util.concurrent.*;
 
-
 /*
 The A* (A-star) search algorithm is a popular pathfinding and graph traversal algorithm.
 It finds the shortest path from a start node to a goal node using a best-first search approach.
@@ -17,6 +16,27 @@ class Node {
         this.name = name;
         this.visited = false;
         this.ttl = ttl; //index from start position.
+    }
+}
+class Edge {
+    Node from, to;
+    int cost;
+
+    public Edge(Node from, Node to, int cost) {
+        this.from = from;
+        this.to = to;
+        this.cost = cost;
+    }
+}
+class NodeEntry {
+    Node node;
+    int gScore;
+    int fScore=1; //asigned because of null exception that occurs SOMETIMES, this line: PriorityQueue<NodeEntry> openSet = new PriorityQueue<>(Comparator.comparingInt(ne -> ne.fScore));
+
+    public NodeEntry(Node node, int gScore, int fScore) {
+        this.node = node;
+        this.gScore = gScore;
+        this.fScore = fScore;
     }
 }
 
@@ -50,14 +70,14 @@ class Graph {
         }
     }
 
-    public List<String> parallelAStarSearch(String start, String goal) throws InterruptedException {
+    public List<String> parallelAStarSearch(String start, String goal) throws InterruptedException, NullPointerException {
 
         if (start.equals(goal)) { return Collections.singletonList(start);}//Check if the start and goal are the same, if so return the start node as the path
         this.resetNodes(); //All "visited" flags in each node must be reset before each search
 
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-        PriorityQueue<NodeEntry> openSet = new PriorityQueue<>(Comparator.comparingInt(ne -> ne.fScore)); //manage the open set of nodes to explore, sorted by fScore
+        PriorityQueue<NodeEntry> openSet = new PriorityQueue<>(Comparator.comparingInt(ne -> ne.fScore)); //manage the open set of nodes to explore, sorted by fScore. Can cause null pointer exception.
 
         Map<Node, Node> cameFrom = new ConcurrentHashMap<>();
         Map<Node, Integer> gScore = new ConcurrentHashMap<>(); //The cost from the start node to the current node.
@@ -80,7 +100,10 @@ class Graph {
             Node current = currentEntry.node;
             current.visited = true;
 
-            if (current == goalNode) { executor.shutdown(); return reconstructPath(cameFrom, goalNode, hopCount.get(goalNode)); } //If the current node is the goal, reconstruct and return the path
+            if (current == goalNode) {
+                executor.shutdown();
+                return reconstructPath(cameFrom, goalNode, hopCount.get(goalNode));
+            } //If the current node is the goal, reconstruct and return the path
 
             List<Edge> neighbors = adjacencyList.getOrDefault(current, new ArrayList<>());
             List<Runnable> tasks = new ArrayList<>();
@@ -141,28 +164,6 @@ class Graph {
     }
 }
 
-class Edge {
-    Node from, to;
-    int cost;
-
-    public Edge(Node from, Node to, int cost) {
-        this.from = from;
-        this.to = to;
-        this.cost = cost;
-    }
-}
-
-class NodeEntry {
-    Node node;
-    int gScore;
-    int fScore;
-
-    public NodeEntry(Node node, int gScore, int fScore) {
-        this.node = node;
-        this.gScore = gScore;
-        this.fScore = fScore;
-    }
-}
 
 public class Main {
     public static void main(String[] args) throws InterruptedException {
@@ -171,31 +172,65 @@ public class Main {
 
         Graph graph = new Graph();
         int iFunny = 1; //is ttl.
-        for(char a = 'A'; a < 'Z'; a++){
+        for(char a = 'A'; a <= 'Z'; a++){
             graph.addNode(String.valueOf(a),iFunny);
             iFunny++ ;
         }
 
         int cost= 1;
-        //Add edges
-        for(char a = 'A'; a < 'Z'; a++){
+        //Add edges to form bidirectional LinkedList structure.
+        for(char a = 'A'; a <= 'Z'; a++){
             char b = (char) (a+1);
-            graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
-            System.out.println("Value of a = " + a + "\t Value of improperly adding a char = " + a+1 + "\t and value of b = " + b);
-            b = (char) (a+2);
-            graph.addEdge(String.valueOf(a), String.valueOf(b), cost+1);
-            b = (char) (a+3);
-            graph.addEdge(String.valueOf(a), String.valueOf(b), cost+2);
-        }
+            if(a != 'Z')
+                graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
+            if(a != 'A'){
+                b -=2; //same as:  a-1
+                graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
+            }
+        }//End Loop
 
-        for(char a = 'A'; a < 'Z'; a++){
-            char b = (char) (a+13);
-            graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
-            System.out.println("Value of a = " + a + "\t Value of improperly adding a char = " + a+1 + "\t and value of b = " + b);
-        }
-        for(char a = 'A'; a < 'Z'; a++){
+        //3 core nodes for 27 nodes. so every 9 index
+        for(char a = (char)( 'A' + 9); a <= 'Z'; a+=9){
+            String to = String.valueOf(a+2);
+            String from = String.valueOf(a);
+            graph.addEdge(from, (to), cost);
 
+            //System.out.println("Value of a = " + a + "\t Value of improperly adding a char = " + a+1 + "\t and value of b = " + b);
 
+            to = String.valueOf(a+3); graph.addEdge(from, (to), cost+2); graph.addEdge((to), (from), cost+2);
+            to = String.valueOf(a+4); graph.addEdge(from, (to), cost+3); graph.addEdge((to), (from), cost+3);
+            to = String.valueOf(a-4); graph.addEdge(from, (to), cost+3); graph.addEdge((to), (from), cost+3);
+            to = String.valueOf(a-3); graph.addEdge(from, (to), cost+2); graph.addEdge((to), (from), cost+2);
+            to = String.valueOf(a-2); graph.addEdge(from, (to), cost); graph.addEdge((to), (from), cost+2);
+            //For Bidirectional edges, add the reverse edges as well
+
+        }//End Loop
+
+        //REALLY IMPROVES, CUTS FROM 11 to 5 and 7 to 3
+        for(char a = 'A'; a <= 'Z'; a++){
+            if(a < 'M') {
+                char b = (char) (a + 13);
+                graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
+                System.out.println("Value of a = " + a + "\t Value of properly adding a char = " + (char)(a+13) + "\t and value of b = " + b);
+            }
+            else if(a == 'M') {
+                char b = 'E';
+                graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
+                System.out.println("Value of a = " + a + "\t and value of b = " + b);
+            }
+            else if(a < 'T') {
+                char b = (char) (a - 13);
+                graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
+                System.out.println("Value of a = " + a + "\t Value of properly adding a char = " + (a-13) + "\t and value of b = " + b);
+            }
+            else
+                continue; //No need to add edges for the last 5 nodes, they are not connected to anything.
+            //End If
+        }//End Loop
+
+        //Every node shares the load
+        /*
+        for(char a = 'A'; a <= 'Z'; a++){
             char b = (char) (a+10);
             if(a < 'D')         b = (char) (a+23);
             else if(a < 'H')    b = (char) (a+13);
@@ -203,22 +238,44 @@ public class Main {
             else if(a < 'O')    b = (char) (a-9);
             else if(a < 'T')    b = (char) (a-13);
             else                b = (char) (a-19);
-
-
             graph.addEdge(String.valueOf(a), String.valueOf(b), cost);
             System.out.println("Value of a = " + a + "\t Value of improperly adding a char = " + a+1 + "\t and value of b = " + b);
         }
+
+         */
         System.out.println(graph.parallelAStarSearch("A", "C"));
         System.out.println(graph.parallelAStarSearch("A", "B"));
         System.out.println(graph.parallelAStarSearch("B", "D"));
         System.out.println(graph.parallelAStarSearch("D", "B"));
         System.out.println(graph.parallelAStarSearch("D", "D"));
 
-        System.out.println(graph.parallelAStarSearch("D", "Q"));
+
         System.out.println(graph.parallelAStarSearch("R", "A"));
         System.out.println(graph.parallelAStarSearch("A", "Z"));
         System.out.println(graph.parallelAStarSearch("B", "D"));
+        graph.addNode("unreachable", 0);
+        print("this one is supposed to be empty/not exit or unreachable");
+        System.out.println(graph.parallelAStarSearch("A", "unreachable"));
+        print(graph.parallelAStarSearch("D", "Q").toString());
+        print("Z to E before M edge\n" + graph.parallelAStarSearch("Z", "E").toString());
+        graph.addEdge("Z", "M", 1);
+        print("Z to E after M edge\n" + graph.parallelAStarSearch("Z", "E").toString());
+    }//End main()
+
+
+
+
+
+
+    private static void print(String s){
+        System.out.println(s);
     }
+
+
+
+
+
+
 
     private static void test1() throws InterruptedException {
         Graph graph = new Graph();
@@ -226,18 +283,12 @@ public class Main {
         graph.addNode("B", 2);
         graph.addNode("C", 5);
         graph.addNode("D", 4);
-
         graph.addEdge("A", "B", 1);
         graph.addEdge("B", "C", 2);
         graph.addEdge("C", "D", 3);
         graph.addEdge("A", "D", 4);
-
         System.out.println(graph.parallelAStarSearch("A", "C"));
         System.out.println(graph.parallelAStarSearch("A", "B"));
         System.out.println(graph.parallelAStarSearch("B", "D"));
-        System.out.println(graph.parallelAStarSearch("D", "B"));
-        System.out.println(graph.parallelAStarSearch("D", "D"));
-
-
-    }
-}
+    }//End test1
+}//End Class
